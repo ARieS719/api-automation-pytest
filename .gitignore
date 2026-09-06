@@ -1,0 +1,23 @@
+# .gitignore
+
+# 1. 忽略 Python 的运行缓存
+__pycache__/
+*.pyc
+
+# 2. 忽略虚拟环境文件夹（非常重要！这玩意儿几百兆，绝对不能传）
+venv/
+env/
+.env/
+
+# 3. 忽略 IDE 的配置缓存
+.vscode/
+.idea/
+
+# 4. 忽略本地的数据库文件（别人拉你的代码不需要你的脏数据）
+*.db
+*.sqlite3
+
+# 5. 忽略测试报告和日志文件
+report/
+.pytest_cache/
+*.log
