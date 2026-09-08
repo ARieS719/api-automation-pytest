@@ -1,0 +1,9 @@
+- case_title: "正向：查询存在的用户 user_id=2"
+  user_id: 2
+  expected_status: 200
+  expected_first_name: "Janet"
+
+- case_title: "异常：查询不存在的用户 user_id=23"
+  user_id: 23
+  expected_status: 404
+  expected_first_name: null

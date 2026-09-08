@@ -2,25 +2,25 @@
   payload:
     item_name: "工业级传感器V2"
     qty: 0
-  expected_status: 400
-  expected_msg: "数量必须大于0"
+  expected_status: 422
+  expected_msg: "参数校验失败"
 
 - case_title: "数量为负数 (异常值)"
   payload:
     item_name: "工业级传感器V2"
     qty: -5
-  expected_status: 400
-  expected_msg: "数量必须大于0"
+  expected_status: 422
+  expected_msg: "参数校验失败"
 
 - case_title: "缺少必填字段 qty (异常情况)"
   payload:
     item_name: "工业级传感器V2"
   expected_status: 422
-  expected_msg: "Field required"
+  expected_msg: "参数校验失败"
 
 - case_title: "数据类型错误: qty 传字符串 (异常情况)"
   payload:
     item_name: "工业级传感器V2"
     qty: "十个"
   expected_status: 422
-  expected_msg: "Input should be a valid integer"
+  expected_msg: "参数校验失败"

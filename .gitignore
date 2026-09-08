@@ -1,23 +1,22 @@
-# .gitignore
-
-# 1. 忽略 Python 的运行缓存
+# Python 缓存
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# 2. 忽略虚拟环境文件夹（非常重要！这玩意儿几百兆，绝对不能传）
+# 虚拟环境
 venv/
 env/
-.env/
+.env
 
-# 3. 忽略 IDE 的配置缓存
-.vscode/
-.idea/
-
-# 4. 忽略本地的数据库文件（别人拉你的代码不需要你的脏数据）
+# 数据库文件 (绝对不能把本地数据传到云端泄露)
 *.db
 *.sqlite3
 
-# 5. 忽略测试报告和日志文件
-report/
-.pytest_cache/
+# 日志文件
+logs/
 *.log
+
+# 测试报告和缓存
+.pytest_cache/
+allure-results/
+allure-report/
