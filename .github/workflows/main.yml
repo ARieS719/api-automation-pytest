@@ -14,9 +14,7 @@ jobs:
       - name: 📦 1. 拉取最新代码
         uses: actions/checkout@v4
 
-      - name: 🐳 2. 一键拉起容器化测试矩阵 (Docker Compose)
-        # 【核心魔法】：
-        # --build: 每次都重新构建最新的纯净镜像
-        # --exit-code-from test-runner: 告诉 GitHub，只要 test-runner 测试容器跑完退出，就直接拿它的成功/失败状态作为整个流水线的最终结果！
+      - name: 🐳 2. 一键拉起容器化测试矩阵 (Docker Compose V2)
+        # 【核心修复】：去掉横杠！使用现代化的 docker compose 命令
         run: |
-          docker-compose up --build --exit-code-from test-runner
+          docker compose up --build --exit-code-from test-runner
