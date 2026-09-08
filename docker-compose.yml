@@ -1,33 +1,25 @@
 version: '3.8'
 
 services:
-  # 1. 后端服务 (你写的 FastAPI 靶机)
   mock-api:
     build: .
     container_name: qa_mock_server
     ports:
       - "8000:8000"
-    volumes:
-      - ./logs:/app/logs
-      - ./test_business.db:/app/test_business.db
     environment:
       - ENV=DOCKER_QA
       - BASE_URL=http://localhost:8000
     restart: always
+    # 【修复】：去掉了 volumes 映射，让 sqlite 和 logs 直接在容器内部自动生成，互不干扰！
 
-  # 2. 自动化测试执行器 (你的大炮)
   test-runner:
     build: .
     container_name: qa_test_runner
-    # 这里通过 command 覆盖默认的 uvicorn 启动命令，改为执行 pytest
-    command: pytest tests/ -s --alluredir=allure-results
+    command: pytest tests/ -s
     depends_on:
       - mock-api
     environment:
-      # 在容器内部通信，要用服务名 mock-api 代替 127.0.0.1
       - ENV=DOCKER_QA
       - BASE_URL=http://mock-api:8000
       - DB_NAME=test_business.db
-    volumes:
-      - ./allure-results:/app/allure-results
-      - ./test_business.db:/app/test_business.db
+    # 【修复】：同样去掉了这里的 volumes 映射
