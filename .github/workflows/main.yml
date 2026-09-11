@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # ✅ 修复防范：加入 cryptography，防止云端 Ubuntu 环境缺少 MySQL 8.0 的加密解密依赖
-          pip install pytest requests pymysql cryptography allure-pytest fastapi uvicorn pydantic loguru
+          pip install pytest requests pymysql cryptography allure-pytest fastapi uvicorn pydantic pydantic-settings loguru
 
       - name: 🚀 5. 启动 Mock 微服务后台 (后台静默运行)
         run: |
