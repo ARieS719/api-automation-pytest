@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS `orders` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `item_name` VARCHAR(255) NOT NULL,
+    `qty` INT NOT NULL,
+    `status` VARCHAR(50) NOT NULL,
+    `create_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

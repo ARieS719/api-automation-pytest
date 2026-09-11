@@ -1,17 +1,16 @@
-from fastapi import FastAPI, HTTPException, Header, Depends
-from pydantic import BaseModel, Field
-import sqlite3
-from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, Field
 from loguru import logger
+import time
+import random
 import os
-
-# ✅ 核心改造 1：引入我们的全局配置中心
+import pymysql # ✅ 核心切换：引入 MySQL 驱动
 from config import settings
 
 # ========================================================
-# 🛡️ 企业级日志基建 (Loguru)
+# 🛡️ 企业级日志基建 (Loguru) - 保持不变
 # ========================================================
 if not os.path.exists("logs"):
     os.makedirs("logs")
@@ -26,26 +25,28 @@ logger.add(
 
 app = FastAPI()
 
-# 拦截并重写 FastAPI 默认的 422 报错
+# 拦截并重写 FastAPI 默认的 422 报错 - 保持不变
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     client_ip = request.client.host if request.client else "Unknown"
     logger.warning(f"🚨 [安全拦截 422] | 源IP: {client_ip} | 路径: {request.url.path} | 恶意Payload: {exc.body} | 拦截原因: {exc.errors()}")
-    
     return JSONResponse(
         status_code=422,
         content={"detail": "参数校验失败，非法请求已记录", "errors": exc.errors()}
     )
 
-def init_db():
-    # ✅ 核心改造 2：动态读取数据库名
-    conn = sqlite3.connect(settings.DB_NAME)
-    conn.execute('''CREATE TABLE IF NOT EXISTS orders
-                    (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT, qty INTEGER, status TEXT)''')
-    conn.commit()
-    conn.close()
+# ✅ 核心改造 1：建立直连 Docker MySQL 的工厂函数
+def get_db_connection():
+    return pymysql.connect(
+        host='127.0.0.1',
+        port=3306,
+        user='qa_user',
+        password='qa_pass',
+        database='automation_shop',
+        cursorclass=pymysql.cursors.DictCursor
+    )
 
-init_db()
+# ⚠️ 注意：删除了原有的 init_db()，因为我们在 Docker 里的 01_create_tables.sql 已经做了表初始化
 
 class OrderRequest(BaseModel):
     item_name: str = Field(..., min_length=1, description="商品名不能为空")
@@ -53,13 +54,11 @@ class OrderRequest(BaseModel):
 
 @app.post("/api/v1/login")
 def login(username: str = "admin", password: str = "123456"):
-    """模拟登录：账号密码正确则颁发 Token"""
     if username == "admin" and password == "123456":
         return {"code": 200, "message": "success", "token": "mock_token_888"}
     raise HTTPException(status_code=401, detail="账号或密码错误")
 
 def verify_token(authorization: str = Header(None)):
-    """依赖函数：检查请求头中的 Authorization 字段"""
     if not authorization or authorization != "Bearer mock_token_888":
         raise HTTPException(status_code=401, detail="无效或缺失的 Token，禁止访问！")
     return authorization
@@ -69,14 +68,20 @@ def create_order(order: OrderRequest, token: str = Depends(verify_token)):
     if order.qty <= 0:
         raise HTTPException(status_code=400, detail="数量必须大于0")
     
-    # ✅ 核心改造 3：动态读取数据库名
-    conn = sqlite3.connect(settings.DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO orders (item_name, qty, status) VALUES (?, ?, ?)", 
-                   (order.item_name, order.qty, "PENDING"))
-    conn.commit()
-    order_id = cursor.lastrowid
-    conn.close()
+    # ✅ 核心改造 2：替换为 MySQL 的连接方式与 %s 占位符
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            # 注意：MySQL 的占位符是 %s，不是 SQLite 的 ?
+            sql = "INSERT INTO orders (item_name, qty, status) VALUES (%s, %s, %s)"
+            cursor.execute(sql, (order.item_name, order.qty, "PENDING"))
+            order_id = cursor.lastrowid
+        conn.commit()
+    except Exception as e:
+        logger.error(f"落库失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="数据库内部错误")
+    finally:
+        conn.close()
     
     return {
         "code": 200,
@@ -85,18 +90,13 @@ def create_order(order: OrderRequest, token: str = Depends(verify_token)):
             "order_id": order_id,
             "item_name": order.item_name,
             "current_status": "PENDING",
-            "timestamp": 1690000000
+            "timestamp": int(time.time())
         }
     }
 
-from fastapi.responses import HTMLResponse
-import time
-import random
-
 # ========================================================
-# 🚀 第三阶段：QA 效能工具平台
+# 🚀 第三阶段：QA 效能工具平台 (UI代码完全保留)
 # ========================================================
-
 @app.get("/tools/data-factory", response_class=HTMLResponse)
 def data_factory_ui():
     """造数工具的网页 UI，业务测试人员直接在浏览器打开使用"""
@@ -151,32 +151,81 @@ def data_factory_ui():
 
 @app.post("/api/v1/tools/batch-orders")
 def batch_create_orders(count: int = 1000):
-    """供效能工具调用的批量造数接口 (跳过鉴权，直接打库)"""
     if count <= 0 or count > 100000:
         return {"error": "数量必须在 1 到 100,000 之间"}
         
     start_time = time.time()
-    
     orders = []
     for _ in range(count):
         item_name = f"批量测试商品_SKU{random.randint(1000, 9999)}"
         orders.append((item_name, random.randint(1, 50), "PENDING"))
         
-    # ✅ 核心改造 4：动态读取数据库名
-    conn = sqlite3.connect(settings.DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.executemany("INSERT INTO orders (item_name, qty, status) VALUES (?, ?, ?)", orders)
-    
-    conn.commit()
-    conn.close()
+    # ✅ 核心改造 3：批量插入改用 MySQL 语法
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            sql = "INSERT INTO orders (item_name, qty, status) VALUES (%s, %s, %s)"
+            cursor.executemany(sql, orders)
+        conn.commit()
+    finally:
+        conn.close()
     
     end_time = time.time()
-    
     logger.info(f"✅ [性能工具] 成功批量灌入 {count} 条数据，耗时 {end_time - start_time:.3f} 秒")
-    
     return {
         "message": "batch generation success",
         "inserted_count": count,
         "time_cost_seconds": round(end_time - start_time, 3)
     }
+
+# ================= 新增业务：订单状态机逻辑 =================
+@app.post("/api/v1/orders/{order_id}/pay")
+def pay_order(order_id: int):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT status FROM orders WHERE id=%s", (order_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="订单不存在")
+                
+            current_status = row['status'] # 使用了 DictCursor，所以可以直接拿 key
+            
+            if current_status == "PAID":
+                raise HTTPException(status_code=409, detail="订单已支付，请勿重复支付")
+            if current_status == "CANCELLED":
+                raise HTTPException(status_code=409, detail="订单已取消，无法支付")
+                
+            cursor.execute("UPDATE orders SET status='PAID' WHERE id=%s", (order_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    
+    return {"code": 0, "msg": "支付成功", "data": {"order_id": order_id, "status": "PAID"}}
+
+
+@app.post("/api/v1/orders/{order_id}/cancel")
+def cancel_order(order_id: int):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT status FROM orders WHERE id=%s", (order_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="订单不存在")
+                
+            current_status = row['status']
+            
+            if current_status == "PAID":
+                raise HTTPException(status_code=409, detail="订单已支付，无法取消。请走退款流程。")
+            if current_status == "CANCELLED":
+                raise HTTPException(status_code=409, detail="订单已取消，请勿重复操作")
+                
+            cursor.execute("UPDATE orders SET status='CANCELLED' WHERE id=%s", (order_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    
+    return {"code": 0, "msg": "取消成功", "data": {"order_id": order_id, "status": "CANCELLED"}}

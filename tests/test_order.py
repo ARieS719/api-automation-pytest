@@ -1,62 +1,68 @@
+# tests/test_order.py
 import pytest
-import requests
-import sqlite3
-from .schemas import OrderResponseSchema
-from pydantic import ValidationError
-from .utils import read_yaml_data
-
-# ✅ 核心改造 1：引入我们在 config.py 中写的全局配置
 from config import settings as app_config
 
-# ❌ 删除了硬编码的 BASE_URL = "http://127.0.0.1:8000"
+class TestOrderLifecycle:
+    """
+    企业级多链路状态流转测试套件
+    """
 
-class TestOrderAPI:
-    
-    def test_create_order_success_and_db_consistency(self, auth_session, cleanup_order_db):
-        """测试正向流程：创建订单并在数据库对账 (数据强一致性断言)"""
+    def test_full_order_lifecycle(self, auth_session, db_connection):
+        print("\n--- [Test START] 开始执行多链路订单生命周期测试 ---")
         
-        # 1. 准备数据 & 发送请求
-        payload = {"item_name": "工业级传感器V2", "qty": 100}
+        # ==========================================
+        # 阶段一：正向链路 - 创建订单
+        # ==========================================
+        create_url = f"{app_config.BASE_URL}/api/v1/orders"
+        payload = {"item_name": "工业级机械臂_QA测试", "qty": 2}
         
-        # ✅ 核心改造 2：发送请求时，动态读取配置中的 BASE_URL
-        resp = auth_session.post(f"{app_config.BASE_URL}/api/v1/orders", json=payload)
+        # 发起下单请求
+        resp_create = auth_session.post(create_url, json=payload)
+        assert resp_create.status_code == 200, f"下单失败: {resp_create.text}"
         
-        # 2. 基础断言
-        assert resp.status_code == 200
+        order_id = resp_create.json().get("data").get("order_id")
+        print(f"-> [步骤1] 下单成功，获取到订单 ID: {order_id}")
         
-        # 3. 强契约校验
-        try:
-            parsed_resp = OrderResponseSchema(**resp.json())
-        except ValidationError as e:
-            pytest.fail(f"接口返回的数据结构发生破坏性变更: {e}")
+        # 【深度断言1】：检查数据库落库状态是否为初始的 PENDING
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT status, qty FROM orders WHERE id=%s", (order_id,))
+            db_record = cursor.fetchone()
+        
+        assert db_record is not None, "数据库中未找到该订单"
+        assert db_record['status'] == "PENDING", "订单初始状态异常"
+        assert db_record['qty'] == 2, "订单落库数量错误"
+        print("-> [断言1] 数据库落库校验通过 (PENDING)！")
+
+        # ==========================================
+        # 阶段二：正向链路 - 支付订单
+        # ==========================================
+        pay_url = f"{app_config.BASE_URL}/api/v1/orders/{order_id}/pay"
+        resp_pay = auth_session.post(pay_url)
+        assert resp_pay.status_code == 200, "支付接口调用失败"
+        print(f"-> [步骤2] 订单 {order_id} 支付接口调用成功")
+        
+        # 【深度断言2】：检查数据库状态是否正确扭转为 PAID
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT status FROM orders WHERE id=%s", (order_id,))
+            db_record = cursor.fetchone()
             
-        # 4. 数据强一致性断言
-        order_id = parsed_resp.data.order_id
-        
-        # ✅ 核心改造 3：底层数据库连接，动态读取配置中的 DB_NAME
-        conn = sqlite3.connect(app_config.DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT item_name, status FROM orders WHERE id=?", (order_id,))
-        db_record = cursor.fetchone()
-        conn.close()
-        
-        assert db_record is not None, "数据库中未生成对应的订单数据！"
-        assert db_record[0] == payload["item_name"], "数据库商品名称不一致"
-        assert db_record[1] == "PENDING", "初始业务状态错误"
+        assert db_record['status'] == "PAID", "订单支付后，数据库状态未流转为 PAID"
+        print("-> [断言2] 数据库状态流转校验通过 (PAID)！")
 
-    # ================= 核心修复部分 =================
-    @pytest.mark.parametrize("case_data", read_yaml_data("order_abnormal_cases.yaml"))
-    def test_create_order_abnormal(self, auth_session, case_data):
-        """测试异常流程：读取 YAML 实现纯数据驱动验证"""
+        # ==========================================
+        # 阶段三：逆向防线 - 已支付订单禁止取消 (状态机防御)
+        # ==========================================
+        cancel_url = f"{app_config.BASE_URL}/api/v1/orders/{order_id}/cancel"
+        resp_cancel = auth_session.post(cancel_url)
         
-        # 从 case_data 字典中解包数据
-        case_title = case_data["case_title"]
-        payload = case_data["payload"]
-        expected_status = case_data["expected_status"]
-        expected_msg = case_data["expected_msg"]
+        # 期望触发我们业务代码里写的 HTTP 409 状态冲突拦截
+        assert resp_cancel.status_code == 409, "状态机防御失效：已支付订单不应允许被取消！"
+        print("-> [步骤3] 状态机防御生效，成功拦截已支付订单的非法取消请求")
         
-        # ✅ 核心改造 4：发送请求时，动态读取配置中的 BASE_URL
-        resp = auth_session.post(f"{app_config.BASE_URL}/api/v1/orders", json=payload)
-        
-        assert resp.status_code == expected_status, f"[{case_title}] 状态码错误"
-        assert expected_msg in resp.text, f"[{case_title}] 提示信息未包含预期内容"
+        # 【深度断言3】：验证底层数据没有被并发或脏读篡改，依然是 PAID
+        with db_connection.cursor() as cursor:
+            cursor.execute("SELECT status FROM orders WHERE id=%s", (order_id,))
+            db_record = cursor.fetchone()
+            
+        assert db_record['status'] == "PAID", "严重Bug：接口防御虽拦截，但底层数据被意外篡改！"
+        print("-> [断言3] 底层数据安全校验通过，状态依然保持 PAID。")

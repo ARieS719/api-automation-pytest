@@ -6,15 +6,63 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# 开启 GitHub Pages 部署所需的权限
+permissions:
+  contents: write
+
 jobs:
-  test:
+  test-and-deploy-report:
     runs-on: ubuntu-latest
 
     steps:
       - name: 📦 1. 拉取最新代码
         uses: actions/checkout@v4
 
-      - name: 🐳 2. 一键拉起容器化测试矩阵 (Docker Compose V2)
-        # 【核心修复】：去掉横杠！使用现代化的 docker compose 命令
+      - name: 🐳 2. 拉起底层数据库 (MySQL 8.0)
         run: |
-          docker compose up --build --exit-code-from test-runner
+          docker compose up -d test-db
+          echo "⏳ 等待 MySQL 容器初始化并执行建表 SQL..."
+          sleep 20 
+
+      - name: 🐍 3. 配置 Python 测试环境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip' # 开启缓存，极大地加快后续流水线执行速度
+
+      - name: 🛠️ 4. 安装项目核心依赖
+        # 确保涵盖了我们刚刚重构所引入的所有库
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest requests pymysql allure-pytest fastapi uvicorn pydantic loguru
+
+      - name: 🚀 5. 启动 Mock 微服务后台 (后台静默运行)
+        run: |
+          nohup uvicorn mock_server.app:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
+          echo "⏳ 等待微服务启动..."
+          sleep 5
+          # 核心亮点：健康探针 (Health Check)。如果接口不通，流水线立刻在此步阻断，不会浪费时间跑测试
+          curl -f http://127.0.0.1:8000/tools/data-factory || exit 1
+
+      - name: ⚔️ 6. 执行全链路深度测试
+        # 生成 allure-results 原始数据目录
+        run: |
+          pytest tests/test_order.py --alluredir=allure-results
+
+      - name: 📊 7. 生成 Allure 可视化测试报告
+        uses: simple-elf/allure-report-action@master
+        if: always() # 无论测试成功还是失败（比如断言报错），都要生成报告！
+        id: allure-report
+        with:
+          allure_results: allure-results
+          gh_pages: gh-pages
+          allure_report: allure-report
+          allure_history: allure-history
+
+      - name: 🌐 8. 自动部署报告到 GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: always()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history

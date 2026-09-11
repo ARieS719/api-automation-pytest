@@ -31,6 +31,23 @@ services:
     volumes:
       - qa-shared-data:/app/shared_data
 
+  # 新增的测试数据库服务 (必须放在 services 这个大层级下面)
+  test-db:
+    image: mysql:8.0
+    container_name: qa_automation_mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_pass     # Root 密码
+      - MYSQL_DATABASE=automation_shop    # 启动时自动创建的测试库名
+      - MYSQL_USER=qa_user                # 分配给自动化脚本的专属账号
+      - MYSQL_PASSWORD=qa_pass            # 专属账号密码
+    ports:
+      - "3306:3306"                       # 将容器内部的 3306 端口映射到你电脑本地
+    volumes:
+      # 极其关键的一步：容器启动时，会自动执行 db_init 目录下的 sql 脚本
+      - ./db_init:/docker-entrypoint-initdb.d
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
 # 【核心魔法 5】：向 Docker 申请一块名字叫 qa-shared-data 的虚拟共享磁盘
+# 注意这里 volumes 下面只能放磁盘的名字，不能放服务
 volumes:
   qa-shared-data:
