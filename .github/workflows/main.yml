@@ -31,19 +31,18 @@ jobs:
           cache: 'pip' # 开启缓存，极大地加快后续流水线执行速度
 
       - name: 🛠️ 4. 安装项目核心依赖
-        # 确保涵盖了我们刚刚重构所引入的所有库
         run: |
           python -m pip install --upgrade pip
-          pip install pytest requests pymysql allure-pytest fastapi uvicorn pydantic loguru
+          # ✅ 修复防范：加入 cryptography，防止云端 Ubuntu 环境缺少 MySQL 8.0 的加密解密依赖
+          pip install pytest requests pymysql cryptography allure-pytest fastapi uvicorn pydantic loguru
 
       - name: 🚀 5. 启动 Mock 微服务后台 (后台静默运行)
         run: |
           nohup uvicorn mock_server.app:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
           echo "⏳ 等待微服务启动..."
           sleep 5
-          # 核心亮点：健康探针 (Health Check)。如果接口不通，流水线立刻在此步阻断，不会浪费时间跑测试
-          curl -f http://127.0.0.1:8000/tools/data-factory || exit 1
-
+          # ✅ 核心修复：如果探测失败，立刻打印 server.log 让我们看看到底报了什么错，再退出！
+          curl -f http://127.0.0.1:8000/tools/data-factory || (echo -e "\n🚨 服务启动失败，正在打印崩溃日志 (server.log)：" && cat server.log && exit 1)
       - name: ⚔️ 6. 执行全链路深度测试
         # 生成 allure-results 原始数据目录
         run: |
