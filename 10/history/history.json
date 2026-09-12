@@ -1,1 +1,0 @@
-{"858670edf22e82824b537a7adc4681aa":{"statistic":{"failed":0,"broken":0,"skipped":0,"passed":1,"unknown":0,"total":1},"items":[{"uid":"b3a8fd5b1439c9c4","reportUrl":"https://ARieS719.github.io/api-automation-pytest/10/#testresult/b3a8fd5b1439c9c4","status":"passed","time":{"start":1789143333266,"stop":1789143333360,"duration":94}}]}}
