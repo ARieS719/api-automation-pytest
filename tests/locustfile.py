@@ -87,3 +87,19 @@ class OrderTestUser(HttpUser):
                 response.success()
             else:
                 response.failure(f"支付链路崩溃，状态码: {response.status_code}")
+
+# ... 之前 OrderTestUser 的代码保留 ...
+
+class SecKillUser(HttpUser):
+    # 秒杀不需要思考时间，零延迟发兵
+    wait_time = between(0, 0)
+    
+    @task
+    def rush_buy(self):
+        # 所有人都向 sku_1001 发起强攻，不顾一切
+        with self.client.post("/api/v1/seckill/sku_1001", name="[秒杀洪峰] 抢购商品", catch_response=True) as response:
+            # 无论成功还是失败，在压测层面我们都算作"请求发出去了"，方便在面板上看并发量
+            if response.status_code == 200:
+                response.success()
+            else:
+                response.failure(f"接口异常: {response.status_code}")

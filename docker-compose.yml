@@ -47,6 +47,18 @@ services:
       - ./db_init:/docker-entrypoint-initdb.d
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
+  redis-cache:
+    image: redis:7.0-alpine
+    container_name: automation_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass qa_redis_pass
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "qa_redis_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 # 【核心魔法 5】：向 Docker 申请一块名字叫 qa-shared-data 的虚拟共享磁盘
 # 注意这里 volumes 下面只能放磁盘的名字，不能放服务
 volumes:

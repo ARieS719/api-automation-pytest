@@ -229,3 +229,89 @@ def cancel_order(order_id: int):
         conn.close()
     
     return {"code": 0, "msg": "取消成功", "data": {"order_id": order_id, "status": "CANCELLED"}}
+
+import asyncio
+import redis.asyncio as redis # 引入异步 Redis 客户端
+
+# 初始化 Redis 连接池
+redis_client = redis.Redis(host='127.0.0.1', port=6379, password='qa_redis_pass', decode_responses=True)
+
+db_inventory = {"sku_1001": 10}
+successful_orders = 0  # 新增一个计数器，记录到底卖出去了多少件！
+
+@app.post("/api/v1/seckill/{sku_id}")
+async def seckill_item(sku_id: str):
+    global successful_orders
+    
+    # 1. 尝试获取 Redis 分布式锁 (锁的 key 就是商品 ID，超时时间 5 秒防死锁)
+    lock_key = f"lock:seckill:{sku_id}"
+    lock = redis_client.lock(lock_key, timeout=5)
+    
+    # 2. 阻塞等待：只有拿到锁的人，才能进屋！
+    async with lock:
+        current_stock = db_inventory.get(sku_id, 0)
+        
+        if current_stock > 0:
+            # 拿到锁后，即使里面耗时 0.1 秒，外面的几百个请求也只能干瞪眼排队
+            await asyncio.sleep(0.1) 
+            db_inventory[sku_id] = current_stock - 1
+            successful_orders += 1  # 真实成交量 + 1
+            return {"msg": "抢购成功！", "remain": db_inventory[sku_id]}
+        else:
+            return {"msg": "库存不足，抢购失败", "remain": 0}
+
+@app.get("/api/v1/inventory/{sku_id}")
+def get_inventory(sku_id: str):
+    """查看真实战况"""
+    return {
+        "remain_stock": db_inventory.get(sku_id, 0),
+        "total_sold": successful_orders
+    }
+
+# --------------------
+# 以下为自动化测试辅助接口
+# --------------------
+@app.post("/api/v1/tools/init-test-stock/{sku_id}/{qty}")
+def init_test_stock(sku_id: str, qty: int):
+    """测试后门：直接修改内存字典中的库存数量"""
+    db_inventory[sku_id] = qty
+    return {"msg": f"{sku_id} 库存已重置为 {qty}"}
+
+import hashlib
+
+# 模拟真实的第三方支付平台（例如支付宝），它们在发起回调时都会带上数字签名，防止伪造。
+WEBHOOK_SECRET = "super_secret_key_from_alipay"
+
+@app.post("/api/v1/webhook/pay_callback")
+async def pay_callback(order_id: str, amount: float, signature: str):
+    """
+    接收第三方支付平台异步回调的接口。
+    真实场景下，这是由支付宝/微信的服务器向我们的服务器发起的请求。
+    """
+    # 1. 验签防御：确保这个回调真的是“支付宝”发来的，而不是黑客伪造的
+    expected_sign_str = f"{order_id}|{amount}|{WEBHOOK_SECRET}"
+    expected_signature = hashlib.md5(expected_sign_str.encode()).hexdigest()
+    
+    if signature != expected_signature:
+        return {"code": 403, "msg": "非法回调签名"}
+
+    # 2. 模拟耗时的内部状态流转（比如记录流水、触发发货等）
+    await asyncio.sleep(0.5) 
+    
+    # 3. 如果我们之前有全局变量保存订单状态，这里就应该更新它
+    # （由于我们之前的 HTTP 测试是直接操作真实 MySQL 的，为了简单演示 Webhook 概念，
+    # 我们用一个临时字典记录这次成功回调的单号）
+    if not hasattr(app.state, 'webhook_orders'):
+        app.state.webhook_orders = {}
+    
+    app.state.webhook_orders[order_id] = "PAID"
+    
+    return {"code": 200, "msg": "回调接收成功"}
+
+@app.get("/api/v1/order/status/{order_id}")
+def check_order_status(order_id: str):
+    """供前端或测试脚本轮询订单状态的接口"""
+    # 先看 webhook 字典里有没有，没有就默认是 PENDING
+    webhook_orders = getattr(app.state, 'webhook_orders', {})
+    status = webhook_orders.get(order_id, "PENDING")
+    return {"order_id": order_id, "status": status}

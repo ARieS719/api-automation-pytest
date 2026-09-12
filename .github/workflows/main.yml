@@ -18,11 +18,11 @@ jobs:
       - name: 📦 1. 拉取最新代码
         uses: actions/checkout@v4
 
-      - name: 🐳 2. 拉起底层数据库 (MySQL 8.0)
+      - name: 🐳 2. 拉起底层数据库与缓存 (MySQL + Redis)
         run: |
-          docker compose up -d test-db
-          echo "⏳ 等待 MySQL 容器初始化并执行建表 SQL..."
-          sleep 20 
+          docker compose up -d test-db redis-cache
+          echo "⏳ 等待基础设施容器初始化..."
+          sleep 20
 
       - name: 🐍 3. 配置 Python 测试环境
         uses: actions/setup-python@v4
@@ -33,19 +33,20 @@ jobs:
       - name: 🛠️ 4. 安装项目核心依赖
         run: |
           python -m pip install --upgrade pip
-          # ✅ 修复防范：加入 cryptography，防止云端 Ubuntu 环境缺少 MySQL 8.0 的加密解密依赖
-          pip install pytest requests pymysql cryptography allure-pytest fastapi uvicorn pydantic pydantic-settings loguru
+          pip install pytest requests pymysql cryptography allure-pytest fastapi uvicorn pydantic pydantic-settings redis loguru
+
       - name: 🚀 5. 启动 Mock 微服务后台 (后台静默运行)
         run: |
           nohup uvicorn mock_server.app:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
           echo "⏳ 等待微服务启动..."
           sleep 5
-          # ✅ 核心修复：如果探测失败，立刻打印 server.log 让我们看看到底报了什么错，再退出！
+          # 核心修复：如果探测失败，立刻打印 server.log 让我们看看到底报了什么错，再退出！
           curl -f http://127.0.0.1:8000/tools/data-factory || (echo -e "\n🚨 服务启动失败，正在打印崩溃日志 (server.log)：" && cat server.log && exit 1)
+
       - name: ⚔️ 6. 执行全链路深度测试
-        # 生成 allure-results 原始数据目录
+        # 去掉具体文件名，直接跑 tests/ 目录，自动搜集并执行所有的用例
         run: |
-          pytest tests/test_order.py --alluredir=allure-results
+          pytest tests/ --alluredir=allure-results
 
       - name: 📊 7. 生成 Allure 可视化测试报告
         uses: simple-elf/allure-report-action@master
