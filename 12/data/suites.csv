@@ -1,0 +1,11 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","218","test_get_user[case_data1]","tests","2026-09-12","passed","2026-09-12","TestReqresAPI","test_reqres","",""
+"","79","test_full_order_lifecycle","tests","2026-09-12","passed","2026-09-12","TestOrderLifecycle","test_order","",""
+"
+    核心并发用例：验证 Redis 锁能阻挡 5 个同时发起的并发请求
+    ","595","test_redis_lock_prevents_overselling","tests","2026-09-12","passed","2026-09-12","","test_concurrency_lock","",""
+"","3266","test_fuzz_create_order","tests","2026-09-12","passed","2026-09-12","TestOrderFuzzing","test_fuzz","",""
+"","256","test_get_user[case_data0]","tests","2026-09-12","passed","2026-09-12","TestReqresAPI","test_reqres","",""
+"
+    高级自动化测试：验证异步 Webhook 回调能够正确流转订单状态
+    ","509","test_async_payment_webhook","tests","2026-09-12","passed","2026-09-12","","test_async_webhook","",""
