@@ -48,6 +48,13 @@ jobs:
         run: |
           pytest tests/ --alluredir=allure-results
 
+      - name: 🚨 测试失败时打印后台崩溃日志 (Troubleshooting)
+        if: failure() # 只有当上面的测试失败时，才会触发这一步
+        run: |
+         echo "========== ⚠️ SERVER.LOG 崩溃详情 =========="
+         cat server.log
+         echo "==========================================="
+
       - name: 📊 7. 生成 Allure 可视化测试报告
         uses: simple-elf/allure-report-action@master
         if: always() # 无论测试成功还是失败（比如断言报错），都要生成报告！
