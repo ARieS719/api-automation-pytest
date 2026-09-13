@@ -8,6 +8,13 @@ import random
 import os
 import pymysql # ✅ 核心切换：引入 MySQL 驱动
 from config import settings
+from fastapi import FastAPI, Request
+from prometheus_fastapi_instrumentator import Instrumentator  # ✅ 新增导入
+
+app = FastAPI(title="QA Mock Server")
+
+# ✅ 插入性能监控探针，开启对 FastAPI 的全方位监控
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ========================================================
 # 🛡️ 企业级日志基建 (Loguru) - 保持不变
@@ -22,8 +29,6 @@ logger.add(
     level="INFO", 
     encoding="utf-8"
 )
-
-app = FastAPI()
 
 # 拦截并重写 FastAPI 默认的 422 报错 - 保持不变
 @app.exception_handler(RequestValidationError)
@@ -315,3 +320,55 @@ def check_order_status(order_id: str):
     webhook_orders = getattr(app.state, 'webhook_orders', {})
     status = webhook_orders.get(order_id, "PENDING")
     return {"order_id": order_id, "status": status}
+
+# ==========================================
+# 🌟 高阶架构模拟：消息队列 (MQ) 与后台异步消费
+# ==========================================
+
+# 模拟用户积分数据库表
+db_user_points = {"user_888": 0}
+MQ_NAME = "queue:order_paid_events"
+
+async def mq_consumer_worker():
+    """
+    这是一个独立于 HTTP 接口的后台消费者进程。
+    它会死循环监听 Redis 消息队列，一旦有支付成功的消息，就去增加积分。
+    """
+    print("🚀 后台 MQ 消费者已启动，正在监听队列...")
+    while True:
+        try:
+            # brpop: 阻塞式读取队列，如果没有消息就一直等 (timeout=0 表示无限期等)
+            # 它返回的是一个元组，比如 (b'queue:order_paid_events', b'ORDER_123')
+            message = await redis_client.brpop(MQ_NAME, timeout=1)
+            if message:
+                _, order_id = message
+                # 模拟处理积分的耗时操作 (0.5秒)
+                await asyncio.sleep(0.5) 
+                
+                # 增加 100 积分
+                db_user_points["user_888"] = db_user_points.get("user_888", 0) + 100
+                print(f"✅ [MQ 消费成功] 订单 {order_id} 处理完毕，积分已入账！")
+        except Exception as e:
+            await asyncio.sleep(1)
+
+@app.on_event("startup")
+async def startup_event():
+    """微服务启动时，顺便把 MQ 消费者作为一个后台守护任务拉起来"""
+    asyncio.create_task(mq_consumer_worker())
+
+@app.post("/api/v1/order/{order_id}/pay_and_notify")
+async def pay_and_notify(order_id: str):
+    """
+    订单支付接口（MQ 生产者）
+    它只负责修改订单状态并把消息扔进队列，绝不等待积分发放完成，直接返回给前端！
+    """
+    # 核心动作：把订单号推进 Redis 消息队列 (lpush)
+    await redis_client.lpush(MQ_NAME, order_id)
+    
+    # 瞬间返回，极大地提高了接口吞吐量 (这就是异步解耦的魅力)
+    return {"code": 200, "msg": "支付成功，积分将在后台异步发放"}
+
+@app.get("/api/v1/user/points/{user_id}")
+def get_user_points(user_id: str):
+    """查询用户当前积分的接口"""
+    return {"user_id": user_id, "points": db_user_points.get(user_id, 0)}
