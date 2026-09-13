@@ -42,7 +42,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # ✅ 核心改造 1：建立直连 Docker MySQL 的工厂函数
 def get_db_connection():
-    return pymysql.connect(
+    conn = pymysql.connect(
         host='127.0.0.1',
         port=3306,
         user='qa_user',
@@ -50,6 +50,31 @@ def get_db_connection():
         database='automation_shop',
         cursorclass=pymysql.cursors.DictCursor
     )
+    return conn
+
+# 🛡️ 终极防御：在服务启动时，强制让 Python 自己去建表！
+# 这样无论 Docker 挂载是否成功，我们的程序都不会因为找不到表而崩溃。
+@app.on_event("startup")
+async def ensure_database_schema():
+    print("🛡️ [应用自愈] 正在强制初始化数据库表结构...")
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            # 强行建表！如果表不存在就创建它。
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    item_name VARCHAR(100) NOT NULL,
+                    qty INT NOT NULL,
+                    status VARCHAR(20) DEFAULT 'PENDING',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        conn.commit()
+        conn.close()
+        print("✅ [应用自愈] 表结构初始化成功！")
+    except Exception as e:
+        print(f"❌ [应用自愈] 建表失败，请检查数据库连接: {e}")
 
 # ⚠️ 注意：删除了原有的 init_db()，因为我们在 Docker 里的 01_create_tables.sql 已经做了表初始化
 
