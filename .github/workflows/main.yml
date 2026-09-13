@@ -21,8 +21,14 @@ jobs:
       - name: 🐳 2. 拉起底层数据库与缓存 (MySQL + Redis)
         run: |
           docker compose up -d test-db redis-cache
-          echo "⏳ 等待基础设施容器初始化..."
-          sleep 45  # ✅ 延长到 45 秒，给云端 MySQL 充足的建表时间
+          echo "⏳ 等待基础设施容器初步就绪..."
+          sleep 20  # 恢复到 20 秒即可
+
+      - name: 🔨 2.5 强行注入建表 SQL (打破黑盒)
+        run: |
+          echo "🚀 绕过挂载玄学，直接把本地 SQL 脚本灌入云端数据库！"
+          cat mysql_init/*.sql | docker exec -i automation_mysql mysql -uqa_user -pqa_pass automation_shop
+          echo "✅ 表结构强行初始化完毕！"
 
       - name: 🐍 3. 配置 Python 测试环境
         uses: actions/setup-python@v4
