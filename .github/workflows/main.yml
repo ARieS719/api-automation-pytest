@@ -22,7 +22,7 @@ jobs:
         run: |
           docker compose up -d test-db redis-cache
           echo "⏳ 等待基础设施容器初始化..."
-          sleep 20
+          sleep 45  # ✅ 延长到 45 秒，给云端 MySQL 充足的建表时间
 
       - name: 🐍 3. 配置 Python 测试环境
         uses: actions/setup-python@v4
